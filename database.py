@@ -1,7 +1,8 @@
 from flask_sqlalchemy import SQLAlchemy     # type:ignore
+import models
 import os
 
-db = SQLAlchemy()
+db = SQLAlchemy(model_class=models.Base)
 
 def initialize_db(app : any) -> None :
     app.config['SQLALCHEMY_DATABASE_URI'] = (

@@ -5,6 +5,7 @@ import eeg_processor
 
 router = Blueprint('main', __name__)
 
+
 @router.route('/')
 def hello():
     return jsonify({"text": "hello"}), 200
