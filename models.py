@@ -1,54 +1,74 @@
-from sqlalchemy import Integer, Float, String
+from sqlalchemy import Integer, Float, String, ForeignKey
 from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
 
 
+
+
 class Subject(Base):
     __tablename__ = "subjects"
 
     id : Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_name : Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name : Mapped[str] = mapped_column(String, unique=True, nullable=False)
     type : Mapped[int] = mapped_column(Integer, nullable=False)
 
+    eids : Mapped[list["EI"]] = relationship("EI", back_populates="subject", cascade="all")
+    psds : Mapped[list["PSD"]] = relationship("PSD", back_populates="subject", cascade="all")
+    
+
     def __init__(self, name : str, type : int):
-        self.subject_name = name
+        self.name = name
         self.type = type
 
     def __repr__(self) -> str:
         return f"{self.subject_name} -- {self.type}"
     
 
+
+
 class EI(Base):
     __tablename__ = "eis"
 
     id : Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id : Mapped[int] = mapped_column(Integer, nullable=False)
-    ei_values : Mapped[list[float]] = mapped_column(ARRAY(Float))
+    subject_id : Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
+    event : Mapped[str] = mapped_column(String, nullable=False)
+    value : Mapped[float] = mapped_column(Float)
 
-    def __init__(self, sub : int, ei_s : list[float]):
+    subject : Mapped["Subject"] = relationship("Subject", back_populates="eis")
+
+
+    def __init__(self, sub : int, event : str, ei : float):
         self.subject_id = sub
-        self.ei_values = ei_s
+        self.event = event
+        self.value = ei
 
     def __repr__(self) -> str:
-        return f"{self.subject_id} -- {self.ei_values}"
+        return f"{self.subject_id} -- {self.event} -- {self.value}"
     
+
+
 
 class PSD(Base):
     __tablename__ = "psds"
 
     id : Mapped[int] = mapped_column(Integer, primary_key=True)
-    subject_id : Mapped[int] = mapped_column(Integer, nullable=False)
+    subject_id : Mapped[int] = mapped_column(ForeignKey("subjects.id"), nullable=False)
+    event : Mapped[str] = mapped_column(String, nullable=False)
     band : Mapped[str] = mapped_column(String, nullable=False)
     pxx_values : Mapped[list[float]] = mapped_column(ARRAY(Float))
 
-    def __init__(self, sub : int, band : str, pxx_s : list[float]):
+    subject : Mapped["Subject"] = relationship("Subject", back_populates="psds")
+
+
+    def __init__(self, sub : int, event : str, band : str, pxx_s : list[float]):
         self.subject_id = sub
+        self.event = event
         self.band = band
         self.pxx_values = pxx_s
 
     def __repr__(self) -> str:
-        return f"{self.subject_id} -- {self.band} -- {self.pxx_values}"
+        return f"{self.subject_id} -- {self.event} -- {self.band} -- {self.pxx_values}"

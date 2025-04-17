@@ -1,10 +1,10 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import joblib  # type: ignore
+import mne  # type: ignore
+import os
 from scipy.signal import butter, filtfilt, iirnotch, welch  # type: ignore
 from sklearn.preprocessing import MinMaxScaler  # type: ignore
-import mne  # type: ignore
-from networkx import is_path  # type: ignore
 from typing import Tuple, List, Optional
 
 bands: List[Tuple[str, float, float]] = [
@@ -170,28 +170,24 @@ def check_load(result: np.ndarray) -> str:
     return "Load Present" if ones > zeros else "No Load"
 
 
-def process_eeg(data: pd.DataFrame) -> Tuple[Optional[str], Optional[List[List[float]]], Optional[List[List[float]]], Optional[np.float64]]:
-    try:
-        lowcut: float = 1
-        highcut: float = 50
-        fs: int = 512
-        window_duration: float = 2
+def process_eeg(data: pd.DataFrame, fs : int) -> Tuple[Optional[str], Optional[List[List[float]]], Optional[List[List[float]]], Optional[np.float64]]:
+    lowcut: float = 1
+    highcut: float = 50
+    window_duration: float = 2
 
-        filtered_data: np.ndarray = bandpass_filter(data.to_numpy(), lowcut, highcut, fs)
-        f_a_data: np.ndarray = remove_artifacts(filtered_data, fs, bandpass=(1, 50), notch_freq=50, notch_quality=30)
-        segmented_data: np.ndarray = process_eeg_data(f_a_data, fs, window_duration)
+    filtered_data: np.ndarray = bandpass_filter(data.to_numpy(), lowcut, highcut, fs)
+    f_a_data: np.ndarray = remove_artifacts(filtered_data, fs, bandpass=(1, 50), notch_freq=50, notch_quality=30)
+    segmented_data: np.ndarray = process_eeg_data(f_a_data, fs, window_duration)
 
-        features_data, pxx_avg, band_frequencies, EI = preprocess_eeg_data(segmented_data, fs)
-        features_data = pd.DataFrame(features_data)
-        selected_features: pd.DataFrame = features_data.iloc[:, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 20,
-                                                                 21, 22, 26, 28, 29, 30, 31, 32, 33, 35, 38, 39, 41, 47, 50, 52,
-                                                                 54, 55, 57, 58, 59, 60, 64, 70, 71, 79, 81, 82, 83, 89, 94, 95]]
-        result: np.ndarray = model.predict(selected_features)
-        return check_load(result), pxx_avg, band_frequencies, EI
+    features_data, pxx_avg, band_frequencies, ei = preprocess_eeg_data(segmented_data, fs)
+    features_data = pd.DataFrame(features_data)
+    selected_features: pd.DataFrame = features_data.iloc[:, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 20,
+                                                                21, 22, 26, 28, 29, 30, 31, 32, 33, 35, 38, 39, 41, 47, 50, 52,
+                                                                54, 55, 57, 58, 59, 60, 64, 70, 71, 79, 81, 82, 83, 89, 94, 95]]
+    result: np.ndarray = model.predict(selected_features)
+    return check_load(result), pxx_avg, band_frequencies, ei
 
-    except FileNotFoundError:
-        print(f"Error: File not found at {is_path}")
-        return None, None, None, None
+
 
 
 def get_events_from_vmrk(vmrk_file: str) -> List[Tuple[str, int]]:
@@ -236,7 +232,7 @@ def process_eeg_file(vhdr_filename: str, vmrk_filename: str, event_desc: str) ->
     """
     # Load the raw EEG data from the .vhdr file
     raw = mne.io.read_raw_brainvision(vhdr_filename, preload=True)
-    sampling_freq: int = 512  # Define the sampling frequency
+    sampling_freq: int = int(os.getenv("FS"))  # sampling frequency
     data, times = raw.get_data(return_times=True)  # Extract data and corresponding time points
 
     # Extract events from the .vmrk file
@@ -259,17 +255,17 @@ def process_eeg_file(vhdr_filename: str, vmrk_filename: str, event_desc: str) ->
     # Extract the data corresponding to the identified segment
     segment_mask: np.ndarray = (times >= segments[0][0]) & (times < segments[0][1])
     segment_data: np.ndarray = data[:, segment_mask]
-    result, pxx_avg, band_frequencies, EI = process_eeg(pd.DataFrame(segment_data))
+    result, pxx_avg, band_frequencies, ei = process_eeg(pd.DataFrame(segment_data), sampling_freq)
 
     # Remove artifacts from the segmented data
     f_a_data: np.ndarray = remove_artifacts(segment_data, sampling_freq)
 
     # Prepare plot data for power spectral density
-    plot_data: List[dict] = [None] * len(bands)
+    psds: List[dict] = [None] * len(bands)
     if pxx_avg is not None and band_frequencies is not None:
         for i in range(len(bands)):
             points: List[Tuple[float, float]] = [(band_frequencies[i][j], pxx_avg[i][j]) for j in range(len(band_frequencies[i]))]
-            plot_data[i] = {"band": bands[i][0], "points": points}
+            psds[i] = {"band": bands[i][0], "points": points}
 
     # Aggregate cleaned data for visualization
     if f_a_data is not None:
@@ -278,4 +274,4 @@ def process_eeg_file(vhdr_filename: str, vmrk_filename: str, event_desc: str) ->
     else:
         cleaned_data: List[float] = []
 
-    return result, plot_data, cleaned_data, EI
+    return result, psds, cleaned_data, ei
