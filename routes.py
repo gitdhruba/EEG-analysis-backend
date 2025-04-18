@@ -1,9 +1,10 @@
 from flask import Blueprint, request, jsonify # type: ignore
 from werkzeug.utils import secure_filename # type: ignore
 from models import Subject, EI, PSD
+from sqlalchemy.orm import joinedload
 from database import db
+from eeg_processor import bands, event_list, process_eeg_file
 import os
-import eeg_processor
 
 router = Blueprint('main', __name__)
 
@@ -45,6 +46,9 @@ def predict():
         return jsonify({"error": "event_desc should be given"}), 400
 
     event_desc = event_desc.strip().capitalize()
+    if event_desc not in event_list:
+        return jsonify({"error": "unknown event_desc"}), 400
+    
     # check for type inconsistency, if it is there then update or create new subject
     subject : Subject = Subject.query.filter(Subject.name == subject_name).first()
     subject_id : int = -1
@@ -79,7 +83,7 @@ def predict():
         vhdr_file.save(vhdr_filepath)
         
         # get result from eeg_processor
-        result, psds, cleaned_data, ei_val = eeg_processor.process_eeg_file(vhdr_filepath, vmrk_filepath, event_desc)
+        result, psds, cleaned_data, ei_val = process_eeg_file(vhdr_filepath, vmrk_filepath, event_desc)
 
 
         if ei_val is not None and psds is not None:
@@ -93,11 +97,15 @@ def predict():
 
             # save psds
             for band in psds:
+                freq : list[float] = [it[0] for it in band["points"]]
+                pxx : list[float] = [it[1] for it in band["points"]]
+
                 psd : PSD = PSD.query.filter((PSD.subject_id == subject_id) & (PSD.event == event_desc) & (PSD.band == band["band"])).first()
                 if psd:             # update
-                    psd.pxx_values = band["points"]
+                    psd.frequencies = freq
+                    psd.pxx_values = pxx
                 else:               # create
-                    new_psd : PSD = PSD(subject_id, event_desc, band["band"], band["points"])
+                    new_psd : PSD = PSD(subject_id, event_desc, band["band"], freq, pxx)
                     db.session.add(new_psd)
 
             db.session.commit()
@@ -121,3 +129,64 @@ def predict():
 
     else:
         return jsonify({"error": "File upload failed"}), 500
+    
+
+
+
+
+@router.route('/get-saved-data', methods=['GET'])
+def get_saved_data():
+
+    # data-structure
+    '''
+        {
+            subjects: [subject_names]
+            eis: [  # index = subject_index
+                    [(event, value)]
+                 ],
+
+            psds: [  
+                     {
+                        "band" : band,
+                        "points" : [   # index = subject_index
+                                      {
+                                         "event": [(freq, pxx)]
+                                      }
+                                   ]
+                     }
+                  ]
+        }
+    '''
+
+    # prepare ds for subjects
+    subjects : list[Subject] = (
+                                    Subject.query
+                                        .options(
+                                            joinedload(Subject.eis),
+                                            joinedload(Subject.psds)
+                                        ).all()
+                               )
+    
+    eis : list[list[tuple[str, float]]] = [
+                                                [
+                                                    (ei.event, ei.value) for ei in sub.eis
+                                                ]  
+                                                for sub in subjects
+                                              ]
+
+    psds : list[dict] = [{"band": b[0], "points": [None] * len(subjects)} for b in bands]
+    for sub_idx, sub in enumerate(subjects):
+        for psd in sub.psds:
+            band_idx = next((i for i, t in enumerate(bands) if t[0] == psd.band), -1)
+            psds[band_idx]["points"][sub_idx][psd.event] = list(zip(psd.frequencies, psd.pxx_values))
+
+
+
+
+    return jsonify({
+        "data": {
+                    "subjects": [(sub.name, sub.type) for sub in subjects],
+                    "eis": eis,
+                    "psds": psds,
+                }
+    }), 200

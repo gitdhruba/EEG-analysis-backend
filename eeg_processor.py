@@ -7,7 +7,8 @@ from scipy.signal import butter, filtfilt, iirnotch, welch  # type: ignore
 from sklearn.preprocessing import MinMaxScaler  # type: ignore
 from typing import Tuple, List, Optional
 
-bands: List[Tuple[str, float, float]] = [
+# signal bands
+bands : List[Tuple[str, float, float]] = [
     ('Delta', 0.5, 4),  # index = 0
     ('Theta', 4, 8),    # index = 1
     ('Alpha', 8, 12),   # index = 2
@@ -15,9 +16,19 @@ bands: List[Tuple[str, float, float]] = [
     ('Gamma', 30, 50)   # index = 4
 ]
 
+
+# only these 6 events we will consider for now
+event_list : list[str] = ["Rest 1", "Task 1", "Rest 2", "Task 2", "Rest 3", "Task 3"]
+
 # Load the pre-trained model
-MODEL_PATH: str = "./binary_classification.pkl"
-model = joblib.load(MODEL_PATH)
+__model : any = None
+
+def load_model() -> None:
+    path : str = os.getenv("MODEL_PATH")
+    global __model
+    __model = joblib.load(path)
+
+
 
 
 def bandpass_filter(data: np.ndarray, lowcut: float, highcut: float, fs: int, order: int = 5) -> np.ndarray:
@@ -121,6 +132,10 @@ def compute_entropy_features(eeg_data: np.ndarray) -> np.ndarray:
 
 
 def calculate_engagement_index(power_features: np.ndarray) -> np.float64:
+    n : int = (power_features.shape[0] * power_features.shape[1])
+    if n == 0:
+        return np.float64(0)
+    
     alpha_index: int = 2
     beta_index: int = 3
     theta_index: int = 1
@@ -135,9 +150,10 @@ def calculate_engagement_index(power_features: np.ndarray) -> np.float64:
             beta_power += ch[beta_index]
             theta_power += ch[theta_index]
 
-    alpha_power /= (power_features.shape[0] * power_features.shape[1])
-    beta_power /= (power_features.shape[0] * power_features.shape[1])
-    theta_power /= (power_features.shape[0] * power_features.shape[1])
+    
+    alpha_power /= n
+    beta_power /= n
+    theta_power /= n
 
     if (alpha_power + theta_power) == np.float64(0):
         return np.float64(0)
@@ -184,13 +200,13 @@ def process_eeg(data: pd.DataFrame, fs : int) -> Tuple[Optional[str], Optional[L
     selected_features: pd.DataFrame = features_data.iloc[:, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 20,
                                                                 21, 22, 26, 28, 29, 30, 31, 32, 33, 35, 38, 39, 41, 47, 50, 52,
                                                                 54, 55, 57, 58, 59, 60, 64, 70, 71, 79, 81, 82, 83, 89, 94, 95]]
-    result: np.ndarray = model.predict(selected_features)
+    result: np.ndarray = __model.predict(selected_features)
     return check_load(result), pxx_avg, band_frequencies, ei
 
 
 
 
-def get_events_from_vmrk(vmrk_file: str) -> List[Tuple[str, int]]:
+def get_events_from_vmrk(vmrk_file: str) -> Optional[List[Tuple[str, int]]]:
     """
     Extracts events from a .vmrk file.
 
@@ -207,7 +223,10 @@ def get_events_from_vmrk(vmrk_file: str) -> List[Tuple[str, int]]:
             if line.startswith("Mk"):  # Check if the line contains marker information
                 info: List[str] = line.strip().split(",")  # Split line by comma
                 if len(info) >= 4:  # Ensure the line has enough fields
-                    desc: str = info[1].strip()  # Extract the event description
+                    desc: str = info[1].strip().capitalize()  # Extract the event description
+                    if desc not in event_list:
+                        return None
+                    
                     index: int = int(info[2].strip())  # Extract the sample index
                     events.append((desc, index))  # Append the event to the list
 
@@ -237,6 +256,9 @@ def process_eeg_file(vhdr_filename: str, vmrk_filename: str, event_desc: str) ->
 
     # Extract events from the .vmrk file
     events: List[Tuple[str, float]] = get_events_from_vmrk(vmrk_filename)
+    if events is None:
+        return "Unknown event found in vmrk file", None, None, None
+     
     event_times: List[Tuple[str, float]] = [(desc, sample_index / sampling_freq) for desc, sample_index in events]
 
     # Identify segments corresponding to the specified event
