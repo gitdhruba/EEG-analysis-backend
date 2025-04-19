@@ -25,7 +25,7 @@ class Subject(Base):
         self.type = type
 
     def __repr__(self) -> str:
-        return f"{self.subject_name} -- {self.type}"
+        return f"{self.name} -- {self.type}"
     
 
 

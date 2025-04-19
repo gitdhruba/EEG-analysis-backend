@@ -50,7 +50,7 @@ def predict():
         return jsonify({"error": "unknown event_desc"}), 400
     
     # check for type inconsistency, if it is there then update or create new subject
-    subject : Subject = Subject.query.filter(Subject.name == subject_name).first()
+    subject : Subject = db.session.query(Subject).filter(Subject.name == subject_name).first()
     subject_id : int = -1
     if subject:
         subject.type = subject_type
@@ -88,19 +88,19 @@ def predict():
 
         if ei_val is not None and psds is not None:
             # save ei
-            ei : EI = EI.query.filter((EI.subject_id == subject_id) & (EI.event == event_desc)).first()
+            ei : EI = db.session.query(EI).filter((EI.subject_id == subject_id) & (EI.event == event_desc)).first()
             if ei:                  # update
-                ei.value = ei_val
+                ei.value = float(ei_val)
             else:                   # create
-                new_ei = EI(subject_id, event_desc, ei_val)
+                new_ei = EI(subject_id, event_desc, float(ei_val))
                 db.session.add(new_ei)
 
             # save psds
             for band in psds:
-                freq : list[float] = [it[0] for it in band["points"]]
-                pxx : list[float] = [it[1] for it in band["points"]]
+                freq : list[float] = [float(it[0]) for it in band["points"]]
+                pxx : list[float] = [float(it[1]) for it in band["points"]]
 
-                psd : PSD = PSD.query.filter((PSD.subject_id == subject_id) & (PSD.event == event_desc) & (PSD.band == band["band"])).first()
+                psd : PSD = db.session.query(PSD).filter((PSD.subject_id == subject_id) & (PSD.event == event_desc) & (PSD.band == band["band"])).first()
                 if psd:             # update
                     psd.frequencies = freq
                     psd.pxx_values = pxx
@@ -160,12 +160,12 @@ def get_saved_data():
 
     # prepare ds for subjects
     subjects : list[Subject] = (
-                                    Subject.query
+                                    db.session.query(Subject)
                                         .options(
                                             joinedload(Subject.eis),
                                             joinedload(Subject.psds)
                                         ).all()
-                               )
+                               )    
     
     eis : list[list[tuple[str, float]]] = [
                                                 [
@@ -174,7 +174,7 @@ def get_saved_data():
                                                 for sub in subjects
                                               ]
 
-    psds : list[dict] = [{"band": b[0], "points": [None] * len(subjects)} for b in bands]
+    psds : list[dict] = [{"band": b[0], "points": [dict() for _ in range(len(subjects))]} for b in bands]
     for sub_idx, sub in enumerate(subjects):
         for psd in sub.psds:
             band_idx = next((i for i, t in enumerate(bands) if t[0] == psd.band), -1)

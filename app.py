@@ -22,7 +22,11 @@ if __name__ == "__main__":
     
     # create flask server
     app = Flask(__name__)
-    CORS(app)
+    CORS( 
+            app,
+            origins="*",
+            methods=["GET", "POST"]
+        )
             
     # db initialization
     initialize_db(app)
@@ -31,4 +35,7 @@ if __name__ == "__main__":
     app.register_blueprint(router)
 
     # start
-    app.run(debug=True)
+    app.run(
+                debug=True,
+                host="0.0.0.0"
+           )

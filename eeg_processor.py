@@ -18,7 +18,7 @@ bands : List[Tuple[str, float, float]] = [
 
 
 # only these 6 events we will consider for now
-event_list : list[str] = ["Rest 1", "Task 1", "Rest 2", "Task 2", "Rest 3", "Task 3"]
+event_list : list[str] = ["", "Rest 1", "Task 1", "Rest 2", "Task 2", "Rest 3", "Task 3"]
 
 # Load the pre-trained model
 __model : any = None
