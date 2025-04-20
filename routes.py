@@ -32,6 +32,10 @@ def predict():
     if eeg_file.filename.split(".")[0] != vmrk_file.filename.split(".")[0] or vmrk_file.filename.split(".")[0] != vhdr_file.filename.split(".")[0]:
         return jsonify({"error": "All file names should be same except extension"}), 400
         
+    # check if all file extension are ok or not
+    if eeg_file.filename.split(".")[1] != "eeg" or vmrk_file.filename.split(".")[1] != "vmrk" or vhdr_file.filename.split(".")[1] != "vhdr":
+        return jsonify({"error": "wrong file type chosen"}), 400
+    
     # subject name
     subject_name : str = eeg_file.filename.split(".")[0].strip()
 
@@ -174,7 +178,7 @@ def get_saved_data():
                                                 for sub in subjects
                                               ]
 
-    psds : list[dict] = [{"band": b[0], "points": [dict() for _ in range(len(subjects))]} for b in bands]
+    psds : list[dict] = [{"band": b[0], "fmin": b[1], "fmax": b[2], "points": [dict() for _ in range(len(subjects))]} for b in bands]
     for sub_idx, sub in enumerate(subjects):
         for psd in sub.psds:
             band_idx = next((i for i, t in enumerate(bands) if t[0] == psd.band), -1)

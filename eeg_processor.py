@@ -8,7 +8,7 @@ from sklearn.preprocessing import MinMaxScaler  # type: ignore
 from typing import Tuple, List, Optional
 
 # signal bands
-bands : List[Tuple[str, float, float]] = [
+bands : List[Tuple[str, int, int]] = [
     ('Delta', 0.5, 4),  # index = 0
     ('Theta', 4, 8),    # index = 1
     ('Alpha', 8, 12),   # index = 2
@@ -18,7 +18,7 @@ bands : List[Tuple[str, float, float]] = [
 
 
 # only these 6 events we will consider for now
-event_list : list[str] = ["", "Rest 1", "Task 1", "Rest 2", "Task 2", "Rest 3", "Task 3"]
+event_list : list[str] = ["", "Rest 1", "Task 1", "Rest 2", "Task 2", "Rest 3", "Task 3", "Rest 4", "Task 4", "Rest 5", "Task 5"]
 
 # Load the pre-trained model
 __model : any = None
