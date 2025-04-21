@@ -14,6 +14,7 @@ def hello():
     return jsonify({"text": "hello"}), 200
 
 
+# route for eeg processing
 @router.route('/predict', methods=['POST'])
 def predict():
     # 3 files are required .eeg, .vmrk, .vhdr
@@ -56,15 +57,22 @@ def predict():
     # check for type inconsistency, if it is there then update or create new subject
     subject : Subject = db.session.query(Subject).filter(Subject.name == subject_name).first()
     subject_id : int = -1
-    if subject:
-        subject.type = subject_type
-        db.session.commit()
-        subject_id = subject.id
-    else:
-        new_subject : Subject = Subject(subject_name, subject_type)
-        db.session.add(new_subject)
-        db.session.commit()
-        subject_id = new_subject.id
+    try:
+        if subject:
+            subject.type = subject_type
+            db.session.commit()
+            subject_id = subject.id
+        else:
+            new_subject : Subject = Subject(subject_name, subject_type)
+            db.session.add(new_subject)
+            db.session.commit()
+            subject_id = new_subject.id
+    except Exception as e:
+        subject_id = -1
+        db.session.rollback()
+
+    if subject_id == -1:
+        return jsonify({"error": "couldn't create or update subject"}),400 
     
     # from now onwards we have subject_id
 
@@ -89,30 +97,34 @@ def predict():
         # get result from eeg_processor
         result, psds, cleaned_data, ei_val = process_eeg_file(vhdr_filepath, vmrk_filepath, event_desc)
 
-
+        dbres : bool = True
         if ei_val is not None and psds is not None:
-            # save ei
-            ei : EI = db.session.query(EI).filter((EI.subject_id == subject_id) & (EI.event == event_desc)).first()
-            if ei:                  # update
-                ei.value = float(ei_val)
-            else:                   # create
-                new_ei = EI(subject_id, event_desc, float(ei_val))
-                db.session.add(new_ei)
+            try:
+                # save ei
+                ei : EI = db.session.query(EI).filter((EI.subject_id == subject_id) & (EI.event == event_desc)).first()
+                if ei:                  # update
+                    ei.value = float(ei_val)
+                else:                   # create
+                    new_ei = EI(subject_id, event_desc, float(ei_val))
+                    db.session.add(new_ei)
 
-            # save psds
-            for band in psds:
-                freq : list[float] = [float(it[0]) for it in band["points"]]
-                pxx : list[float] = [float(it[1]) for it in band["points"]]
+                # save psds
+                for band in psds:
+                    freq : list[float] = [float(it[0]) for it in band["points"]]
+                    pxx : list[float] = [float(it[1]) for it in band["points"]]
 
-                psd : PSD = db.session.query(PSD).filter((PSD.subject_id == subject_id) & (PSD.event == event_desc) & (PSD.band == band["band"])).first()
-                if psd:             # update
-                    psd.frequencies = freq
-                    psd.pxx_values = pxx
-                else:               # create
-                    new_psd : PSD = PSD(subject_id, event_desc, band["band"], freq, pxx)
-                    db.session.add(new_psd)
+                    psd : PSD = db.session.query(PSD).filter((PSD.subject_id == subject_id) & (PSD.event == event_desc) & (PSD.band == band["band"])).first()
+                    if psd:             # update
+                        psd.frequencies = freq
+                        psd.pxx_values = pxx
+                    else:               # create
+                        new_psd : PSD = PSD(subject_id, event_desc, band["band"], freq, pxx)
+                        db.session.add(new_psd)
 
-            db.session.commit()
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                dbres = False
 
         # close all brain-Vision files
         vmrk_file.close()
@@ -123,12 +135,15 @@ def predict():
         os.remove(vhdr_filepath)
         os.remove(eeg_filepath)
 
-        return jsonify({
-            "result": result,
-            "plot_data": psds,
-            "engagement_index": ei_val,
-            "cleaned_data": cleaned_data
-        }), 200
+        if dbres:
+            return jsonify({
+                "result": result,
+                "plot_data": psds,
+                "engagement_index": ei_val,
+                "cleaned_data": cleaned_data
+            }), 200
+        else:
+            return jsonify({"error": "couldn't save ei or psd"}),400 
 
 
     else:
@@ -137,7 +152,7 @@ def predict():
 
 
 
-
+# route for getting saved data
 @router.route('/get-saved-data', methods=['GET'])
 def get_saved_data():
 
@@ -193,4 +208,41 @@ def get_saved_data():
                     "eis": eis,
                     "psds": psds,
                 }
+    }), 200
+
+
+
+
+# route for clearing all saved data
+@router.route('/clear-saved-data', methods=['DELETE'])
+def clear_saved_data():
+    try:
+        rowseffected : int = 0
+        rowseffected = db.session.query(PSD).delete()
+        if rowseffected <= 0:
+            return jsonify({
+                "error": "couldn't delete psds"
+            }), 400
+        
+        rowseffected = db.session.query(EI).delete()
+        if rowseffected <= 0:
+            return jsonify({
+                "error": "couldn't delete eis"
+            }), 400
+        
+        rowseffected = db.session.query(Subject).delete()
+        if rowseffected <= 0:
+            return jsonify({
+                "error": "couldn't delete subjects"
+            }), 400
+        
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "couldn't delete in db"
+        }), 400
+    
+    return jsonify({
+        "data": "cleared saved data"
     }), 200

@@ -25,7 +25,7 @@ if __name__ == "__main__":
     CORS( 
             app,
             origins="*",
-            methods=["GET", "POST"]
+            methods=["GET", "POST", "DELETE"]
         )
             
     # db initialization
